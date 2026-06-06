@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* ── Default (dark) theme ── */
+:root {
+  color-scheme: dark;
+  --ws-primary: ; /* set by ThemeProvider when a workspace with primaryColor is active */
+}
+
+/* ── Workspace primary color ── */
+/* When --ws-primary is set, .ws-primary-bg / .ws-primary-text apply it */
+.ws-primary-bg  { background-color: var(--ws-primary, #3b82f6) !important; }
+.ws-primary-text { color: var(--ws-primary, #3b82f6) !important; }
+.ws-primary-border { border-color: var(--ws-primary, #3b82f6) !important; }
+
+html.light {
+  color-scheme: light;
+}
+
+body {
+  background: #111827;
+  color: #f9fafb;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ── Light mode overrides ────────────────────────────────────── */
+/* Higher specificity (0-2-1) overrides Tailwind utilities (0-1-0) */
+
+html.light body { background-color: #f1f5f9; color: #0f172a; }
+
+/* Backgrounds */
+html.light .bg-gray-950 { background-color: #f1f5f9; }
+html.light .bg-gray-900 { background-color: #ffffff; }
+html.light .bg-gray-800 { background-color: #f1f5f9; }
+html.light .bg-gray-700 { background-color: #e2e8f0; }
+
+/* Semi-transparent backgrounds */
+html.light .bg-gray-950\/30 { background-color: rgb(241 245 249 / 0.3); }
+html.light .bg-gray-950\/50 { background-color: rgb(241 245 249 / 0.5); }
+html.light .bg-gray-950\/70 { background-color: rgb(241 245 249 / 0.7); }
+html.light .bg-gray-900\/50 { background-color: rgb(255 255 255 / 0.5); }
+html.light .bg-gray-900\/95 { background-color: rgb(255 255 255 / 0.95); }
+html.light .bg-gray-800\/30 { background-color: rgb(241 245 249 / 0.3); }
+html.light .bg-gray-800\/60 { background-color: rgb(241 245 249 / 0.6); }
+
+/* Text */
+html.light .text-white { color: #0f172a; }
+html.light .text-gray-300 { color: #334155; }
+html.light .text-gray-400 { color: #475569; }
+html.light .text-gray-500 { color: #64748b; }
+html.light .text-gray-600 { color: #64748b; }
+html.light .text-gray-700 { color: #94a3b8; }
+
+/* Borders */
+html.light .border-gray-800 { border-color: #e2e8f0; }
+html.light .border-gray-700 { border-color: #cbd5e1; }
+html.light .border-gray-600 { border-color: #94a3b8; }
+
+/* Hover backgrounds */
+html.light .hover\:bg-gray-800:hover { background-color: #f1f5f9; }
+html.light .hover\:bg-gray-900:hover { background-color: #f1f5f9; }
+html.light .hover\:bg-gray-700:hover { background-color: #e2e8f0; }
+
+/* Gradient stops (chat input gradient overlay) */
+html.light .from-gray-900 { --tw-gradient-from: #ffffff var(--tw-gradient-from-position, ); }
+html.light .via-gray-900\/95 { --tw-gradient-via: rgb(255 255 255 / 0.95) var(--tw-gradient-via-position, ); }
+
+/* Additional semi-transparent backgrounds */
+html.light .bg-gray-700\/70  { background-color: rgb(226 232 240 / 0.7); }
+html.light .bg-gray-800\/50  { background-color: rgb(226 232 240 / 0.5); }
+html.light .bg-gray-800\/70  { background-color: rgb(226 232 240 / 0.7); }
+html.light .bg-gray-800\/80  { background-color: rgb(226 232 240 / 0.8); }
+
+/* Additional hover backgrounds */
+html.light .hover\:bg-gray-800\/50:hover { background-color: rgb(203 213 225 / 0.6); }
+html.light .hover\:bg-gray-800\/60:hover { background-color: rgb(203 213 225 / 0.6); }
+html.light .hover\:bg-gray-800\/70:hover { background-color: rgb(226 232 240 / 0.7); }
+html.light .hover\:text-white:hover { color: #0f172a; }
+
+/* Dividers */
+html.light .divide-gray-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: #e2e8f0; }
+
+/* Gradient from-stops (sidebar item text-fade overlay) */
+html.light .from-gray-950       { --tw-gradient-from: #f1f5f9  var(--tw-gradient-from-position,); }
+html.light .from-gray-700\/70   { --tw-gradient-from: rgb(226 232 240 / 0.7) var(--tw-gradient-from-position,); }
+html.light .group:hover .group-hover\:from-gray-800\/70 { --tw-gradient-from: rgb(226 232 240 / 0.7) var(--tw-gradient-from-position,); }
+
+/* Keep text/icons white on colored button/badge backgrounds */
+html.light button.bg-blue-600,
+html.light button.bg-blue-700,
+html.light button.bg-red-600,
+html.light button.bg-red-700    { color: #ffffff; }
+html.light a.bg-blue-600        { color: #ffffff; }
+html.light .bg-blue-500.text-white { color: #ffffff; }
+
+/* Error boxes */
+html.light .bg-red-950 { background-color: #fef2f2; }
+
+/* Placeholders */
+html.light input::placeholder,
+html.light textarea::placeholder { color: #94a3b8; }
+
+/* ── Artifact canvas: rendered-markdown prose ─────────────────── */
+/* Always light (the canvas preview pane is white regardless of theme). */
+.artifact-markdown { line-height: 1.65; font-size: 15px; }
+.artifact-markdown h1,
+.artifact-markdown h2,
+.artifact-markdown h3,
+.artifact-markdown h4 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.6em; }
+.artifact-markdown h1 { font-size: 1.7em; border-bottom: 1px solid #e5e7eb; padding-bottom: .3em; }
+.artifact-markdown h2 { font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: .25em; }
+.artifact-markdown h3 { font-size: 1.2em; }
+.artifact-markdown h4 { font-size: 1.05em; }
+.artifact-markdown p { margin: 0.7em 0; }
+.artifact-markdown ul,
+.artifact-markdown ol { margin: 0.7em 0; padding-left: 1.6em; }
+.artifact-markdown li { margin: 0.25em 0; }
+.artifact-markdown ul { list-style: disc; }
+.artifact-markdown ol { list-style: decimal; }
+.artifact-markdown a { color: #2563eb; text-decoration: underline; }
+.artifact-markdown blockquote { margin: 0.8em 0; padding: 0.2em 1em; border-left: 4px solid #d1d5db; color: #4b5563; }
+.artifact-markdown hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.4em 0; }
+.artifact-markdown img { max-width: 100%; border-radius: 8px; }
+.artifact-markdown code { background: #f3f4f6; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.artifact-markdown pre { background: #1e293b; color: #e2e8f0; padding: 14px 16px; border-radius: 10px; overflow-x: auto; margin: 0.9em 0; }
+.artifact-markdown pre code { background: none; padding: 0; color: inherit; font-size: 0.85em; }
+.artifact-markdown table { border-collapse: collapse; margin: 0.9em 0; }
+.artifact-markdown th,
+.artifact-markdown td { border: 1px solid #e5e7eb; padding: 6px 10px; }

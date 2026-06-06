@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hakerek-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hakerek}
+      POSTGRES_USER: ${POSTGRES_USER:-hakerek}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hakerek} -d ${POSTGRES_DB:-hakerek}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - hakerek_internal
+
+  db-migrate:
+    build: .
+    container_name: hakerek-migrate
+    restart: "no"
+    command: >
+      sh -c "
+        node -e \"
+          const { PrismaClient } = require('@prisma/client');
+          const prisma = new PrismaClient();
+          prisma.\\\$executeRawUnsafe('CREATE EXTENSION IF NOT EXISTS vector')
+            .then(() => prisma.\\\$disconnect())
+            .catch((e) => { console.warn('pgvector:', e.message); return prisma.\\\$disconnect(); });
+        \" &&
+        node node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss
+      "
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - hakerek_internal
+    profiles:
+      - migrate
+
+  hakerek-web:
+    build: .
+    container_name: hakerek-web
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-https://hakerek.com}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - proxy_net
+      - hakerek_internal
+
+volumes:
+  postgres_data:
+
+networks:
+  proxy_net:
+    external: true
+    name: proxy_net
+  hakerek_internal:
+    driver: bridge
+    internal: true

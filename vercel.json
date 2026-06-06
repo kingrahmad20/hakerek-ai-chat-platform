@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/webhook-retry",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/scheduled-agents",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/connector-sync",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

@@ -1,0 +1,666 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id                   String            @id @default(cuid())
+  name                 String?
+  email                String?           @unique
+  emailVerified        DateTime?
+  image                String?
+  password             String?
+  role                 String            @default("USER") // USER | ADMIN | user_manager | content_moderator | billing_admin
+  banned               Boolean           @default(false)
+  systemPrompt         String?
+  locale               String            @default("en")
+  tokenVersion         Int               @default(0)
+  accounts             Account[]
+  sessions             Session[]
+  chats                Chat[]
+  usageLogs            UsageLog[]
+  apiTokens            ApiToken[]
+  webhooks             Webhook[]
+  workspaceMemberships WorkspaceMember[]
+  ownedWorkspaces      Workspace[]       @relation("OwnedWorkspaces")
+  memories             Memory[]
+  knowledgeBases       KnowledgeBase[]
+  knowledgeConnectors  KnowledgeConnector[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  messageReactions     MessageReaction[]
+  monthlyMessageQuota  Int?              // null = use global rateLimitPerDay
+  monthlyTokenQuota    Int?              // null = no token limit
+  lastSeenAt           DateTime?
+  subscription         UserSubscription?
+  actionItems          ActionItem[]
+  scheduledAgents      ScheduledAgent[]
+  authoredMessages     Message[]         @relation("MessageAuthor")
+  pushSubscriptions    PushSubscription[]
+  evalSuites           EvalSuite[]
+  libraryItems         UserLibraryItem[]
+  marketplaceItems     MarketplaceItem[]
+}
+
+model UsageLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  chatId       String?
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  createdAt    DateTime @default(now())
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Chat {
+  id                String           @id @default(cuid())
+  title             String
+  userId            String
+  folder            String?
+  workspaceFolderId String?
+  pinned            Boolean          @default(false)
+  archived          Boolean          @default(false)
+  shareToken        String?          @unique
+  shareExpiresAt    DateTime?
+  shareViewCount    Int              @default(0)
+  deletedAt         DateTime?
+  parentChatId      String?
+  forkMessageId     String?
+  summary           String?
+  summaryUpdatedAt  DateTime?
+  activePersonaId   String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages          Message[]
+  workspaceFolder   WorkspaceFolder? @relation(fields: [workspaceFolderId], references: [id], onDelete: SetNull)
+  actionItems       ActionItem[]
+  insight           ChatInsight?
+}
+
+model Message {
+  id              String                      @id @default(cuid())
+  content         String
+  role            String                      // user or assistant or system
+  model           String?                     // LLM model that generated this message (assistant only)
+  chatId          String
+  authorId        String?                     // user who sent this (collaborative chats); null = falls back to chat owner
+  parentMessageId String?
+  pinned          Boolean                     @default(false)
+  embedding       Unsupported("vector(1536)")?
+  createdAt       DateTime                    @default(now())
+  chat            Chat                        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  author          User?                       @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  parentMessage   Message?                    @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  replies         Message[]                   @relation("MessageReplies")
+  reactions       MessageReaction[]
+
+  @@index([authorId])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  type      String   // "thumbs_up" | "thumbs_down" | emoji: "❤️" | "😂" | "🎉" | "🤔"
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, type])
+  @@index([messageId])
+  @@index([type])
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+// ── Conversation Intelligence ─────────────────────────────────────────────────
+// One row per analyzed Chat. Produced by an LLM pass over the transcript
+// (see src/lib/conversation-intelligence.ts) and consumed by the admin
+// "Intelligence" tab to auto-tag topics, flag sentiment, and surface trends.
+
+model ChatInsight {
+  id              String   @id @default(cuid())
+  chatId          String   @unique
+  topics          String[] // auto-tagged topic labels (lowercased, deduped)
+  sentiment       String   @default("neutral") // positive | neutral | negative | mixed
+  sentimentScore  Float    @default(0) // -1 (frustrated) … 1 (delighted)
+  primaryQuestion String?  // canonical user question / intent, one line
+  language        String?  // detected ISO language code of the conversation
+  model           String?  // model id used to produce this analysis
+  messageCount    Int      @default(0) // message count at analysis time (staleness check)
+  analyzedAt      DateTime @default(now())
+  chat            Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([sentiment])
+  @@index([analyzedAt])
+}
+
+model Page {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ApiToken {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  tokenHash String    @unique
+  lastUsed  DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Webhook {
+  id         String            @id @default(cuid())
+  userId     String
+  name       String
+  url        String
+  secret     String
+  events     String[]
+  active     Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id          String    @id @default(cuid())
+  webhookId   String
+  event       String
+  payload     String
+  status      Int
+  success     Boolean
+  retryCount  Int       @default(0)
+  nextRetryAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  webhook     Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([success, nextRetryAt])
+}
+
+// ── Long-term Memory ─────────────────────────────────────────────────────────
+
+model Memory {
+  id        String                      @id @default(cuid())
+  userId    String
+  content   String
+  embedding Unsupported("vector(1536)")?
+  category  String                      @default("general") // personal | preference | goal | context | general
+  sourceId  String? // chatId this was extracted from
+  createdAt DateTime                    @default(now())
+  updatedAt DateTime                    @updatedAt
+  user      User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ── Team / Workspace ──────────────────────────────────────────────────────────
+
+model Workspace {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  ownerId      String
+  theme        String?  // "dark" | "light" | null (null = member's personal preference)
+  primaryColor String?  // hex e.g. "#3b82f6" | null (null = default)
+  // ── Budget guardrails ──
+  // monthlyBudgetUsd: estimated-spend cap per calendar month; null = no cap.
+  // The alert flags below are scoped to budgetPeriod ("YYYY-MM") and reset when
+  // the period rolls over or the cap changes, so each threshold notifies once.
+  monthlyBudgetUsd Float?
+  budgetPeriod     String?  // "YYYY-MM" the alert flags below apply to
+  budgetAlert80    Boolean  @default(false) // 80% threshold notified this period
+  budgetAlert100   Boolean  @default(false) // 100% (hard-stop) notified this period
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  owner   User              @relation("OwnedWorkspaces", fields: [ownerId], references: [id], onDelete: Cascade)
+  members WorkspaceMember[]
+  folders WorkspaceFolder[]
+  invites WorkspaceInvite[]
+  marketplaceItems MarketplaceItem[]
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String   @default("MEMBER") // OWNER | ADMIN | MEMBER
+  joinedAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model WorkspaceFolder {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  chats     Chat[]
+}
+
+model WorkspaceInvite {
+  id          String   @id @default(cuid())
+  workspaceId String
+  token       String   @unique @default(cuid())
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ── Knowledge Base / RAG ──────────────────────────────────────────────────────
+
+model KnowledgeBase {
+  id          String               @id @default(cuid())
+  name        String
+  description String?
+  userId      String
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents   KnowledgeDocument[]
+  connectors  KnowledgeConnector[]
+  marketplaceItems MarketplaceItem[]
+}
+
+model KnowledgeDocument {
+  id              String              @id @default(cuid())
+  knowledgeBaseId String
+  fileName        String
+  fileType        String
+  fileSize        Int
+  status          String              @default("processing") // processing | ready | error
+  errorMessage    String?
+  createdAt       DateTime            @default(now())
+  // ── Source tracking (manual upload vs. native connectors) ──
+  source          String              @default("upload") // upload | gdrive | gmail | gcal | notion
+  connectorId     String?
+  externalId      String? // provider-side id (e.g. Drive file id)
+  externalUrl     String? // link back to the source item
+  contentHash     String? // md5/modifiedTime fingerprint to skip unchanged re-syncs
+  syncedAt        DateTime?
+  knowledgeBase   KnowledgeBase       @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  connector       KnowledgeConnector? @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  chunks          KnowledgeChunk[]
+
+  @@index([connectorId, externalId])
+}
+
+// A live external data source linked to a knowledge base. OAuth tokens are
+// stored encrypted (AES-256-GCM, see src/lib/crypto.ts). Currently Google
+// Drive; the `provider` field leaves room for gmail/gcal/notion adapters.
+model KnowledgeConnector {
+  id              String              @id @default(cuid())
+  knowledgeBaseId String
+  userId          String
+  provider        String // gdrive (future: gmail | gcal | notion)
+  status          String              @default("active") // active | error | paused
+  accountEmail    String? // which external account is connected
+  // OAuth tokens — encrypted at rest
+  accessToken     String?
+  refreshToken    String?
+  expiresAt       DateTime?
+  scope           String?
+  // What to sync (e.g. { folderId, folderName }) and how often
+  config          Json?
+  syncIntervalMin Int                 @default(60)
+  // Sync state
+  syncCursor      String? // reserved for incremental sync (Drive changes pageToken)
+  lastSyncedAt    DateTime?
+  lastError       String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  knowledgeBase   KnowledgeBase       @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents       KnowledgeDocument[]
+
+  @@index([status, lastSyncedAt])
+}
+
+model KnowledgeChunk {
+  id         String            @id @default(cuid())
+  documentId String
+  content    String
+  embedding  Unsupported("vector(1536)")?
+  chunkIndex Int
+  createdAt  DateTime          @default(now())
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // workspace_member_joined | shared_chat_viewed | memory_saved | document_ready
+  title     String
+  body      String?
+  link      String?
+  refId     String?  // related entity id (chatId, workspaceId, documentId) for dedup
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+}
+
+// Web Push (PushManager) subscriptions. One row per browser/device endpoint.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String   // client public key (keys.p256dh)
+  auth      String   // client auth secret (keys.auth)
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+
+model RateLimit {
+  key     String   @id
+  count   Int      @default(0)
+  resetAt DateTime
+
+  @@index([resetAt])
+}
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+model SubscriptionPlan {
+  id             String             @id @default(cuid())
+  name           String             @unique // "free" | "pro" | "ultra"
+  displayName    String
+  stripePriceId  String?
+  monthlyPrice   Float              @default(0)
+  features       String             @default("[]") // JSON array of feature strings
+  messageLimit   Int?               // null = unlimited
+  tokenLimit     Int?               // null = unlimited
+  sortOrder      Int                @default(0)
+  active         Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  subscriptions  UserSubscription[]
+}
+
+model UserSubscription {
+  id                   String           @id @default(cuid())
+  userId               String           @unique
+  planId               String
+  stripeCustomerId     String?
+  stripeSubscriptionId String?          @unique
+  status               String           @default("active") // active | canceled | past_due | trialing | incomplete
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([stripeCustomerId])
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String
+  actor       User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  action      String
+  targetType  String?
+  targetId    String?
+  targetLabel String?
+  metadata    String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ── Action Items ──────────────────────────────────────────────────────────────
+
+model ActionItem {
+  id        String   @id @default(cuid())
+  chatId    String
+  userId    String
+  text      String
+  type      String   @default("task") // task | decision
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([userId])
+}
+
+// ── Scheduled / Recurring Agents ──────────────────────────────────────────────
+
+model ScheduledAgent {
+  id            String              @id @default(cuid())
+  userId        String
+  name          String
+  prompt        String              // the user prompt run on each invocation
+  schedule      String              // 5-field cron expression (min hour dom month dow)
+  timezone      String              @default("UTC") // IANA tz the cron is evaluated in
+  model         String?             // optional model override (provider:id); null = defaultModel
+  enabledTools  String[]            // agent tool names to enable for the run
+  notify        Boolean             @default(true)  // create an in-app notification on completion
+  saveToChat    Boolean             @default(false) // append each run's output to a dedicated chat
+  chatId        String?             // lazily-created chat used when saveToChat is on
+  active        Boolean             @default(true)
+  nextRunAt     DateTime?           // next due time (UTC); null when paused/uncomputable
+  lastRunAt     DateTime?
+  lastStatus    String?             // "success" | "error"
+  lastError     String?
+  lastResult    String?             // truncated output of the most recent run
+  runCount      Int                 @default(0)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs          ScheduledAgentRun[]
+
+  @@index([active, nextRunAt])
+  @@index([userId])
+}
+
+model ScheduledAgentRun {
+  id           String         @id @default(cuid())
+  agentId      String
+  status       String         // "success" | "error"
+  output       String?
+  error        String?
+  inputTokens  Int            @default(0)
+  outputTokens Int            @default(0)
+  durationMs   Int            @default(0)
+  createdAt    DateTime       @default(now())
+  agent        ScheduledAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+}
+
+// ── Prompt / Model Eval Harness ───────────────────────────────────────────────
+// A reusable suite of test prompts that can be replayed across multiple models
+// (and an optional LLM-as-judge) so defaultModel / fallbackModels can be tuned
+// with data instead of guesswork.
+
+model EvalSuite {
+  id           String     @id @default(cuid())
+  name         String
+  description  String?
+  systemPrompt String?    // optional system prompt applied to every case in the suite
+  userId       String?    // creating admin; null if that account is later deleted
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cases        EvalCase[]
+  runs         EvalRun[]
+
+  @@index([userId])
+}
+
+model EvalCase {
+  id        String       @id @default(cuid())
+  suiteId   String
+  prompt    String
+  expected  String?      // optional reference answer; substring match drives `passed`
+  order     Int          @default(0)
+  createdAt DateTime     @default(now())
+  suite     EvalSuite    @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  results   EvalResult[]
+
+  @@index([suiteId])
+}
+
+model EvalRun {
+  id          String       @id @default(cuid())
+  suiteId     String
+  status      String       @default("running") // running | done | error
+  models      String[]     // model ids evaluated in this run
+  judgeModel  String?      // model used for LLM-as-judge scoring; null = no judge
+  totalTasks  Int          @default(0) // models × cases
+  doneTasks   Int          @default(0) // completed (model, case) pairs so far
+  error       String?
+  createdAt   DateTime     @default(now())
+  completedAt DateTime?
+  suite       EvalSuite    @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  results     EvalResult[]
+
+  @@index([suiteId, createdAt])
+}
+
+model EvalResult {
+  id           String     @id @default(cuid())
+  runId        String
+  caseId       String?    // null once the originating case is edited/removed
+  prompt       String     @default("") // snapshot so results survive suite edits
+  model        String
+  output       String?
+  score        Float?     // LLM-judge score, 0-10
+  passed       Boolean?   // expected-substring match result; null when no expected answer
+  rationale    String?    // one-line judge justification
+  inputTokens  Int        @default(0)
+  outputTokens Int        @default(0)
+  latencyMs    Int        @default(0)
+  error        String?
+  createdAt    DateTime   @default(now())
+  run          EvalRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  case         EvalCase?  @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([caseId])
+}
+
+// ── Marketplace / Sharing ─────────────────────────────────────────────────────
+// Per-user library of personas ("custom assistants") and slash commands. Unlike
+// the global admin-curated ones in the Setting table, these are user-owned and
+// can be created on the /library page or imported from the marketplace. The chat
+// path merges them with the global ones when resolving a personaId / commands.
+
+model UserLibraryItem {
+  id           String   @id @default(cuid())
+  userId       String
+  type         String   // "persona" | "slash_command"
+  data         String   // JSON snapshot of the item's fields (see lib/marketplace.ts)
+  enabled      Boolean  @default(true)
+  sourceItemId String?  // MarketplaceItem.id it was imported from; null = self-authored
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings     MarketplaceItem[] // marketplace listings published from this library item
+
+  @@unique([userId, sourceItemId]) // a user imports a given marketplace item at most once
+  @@index([userId, type])
+}
+
+// A published, shareable copy of a persona, slash command, or knowledge base.
+// Reuses the shareToken pattern from Chat. Knowledge-base listings reference the
+// live source KB (knowledgeBaseId) and are cloned on import; deleting the source
+// KB cascades and unpublishes the listing.
+model MarketplaceItem {
+  id              String   @id @default(cuid())
+  shareToken      String   @unique @default(cuid())
+  type            String   // "persona" | "slash_command" | "knowledge_base"
+  visibility      String   @default("public") // "public" | "workspace" | "unlisted"
+  authorId        String
+  workspaceId     String?  // required when visibility == "workspace"
+  knowledgeBaseId String?  // set for type=knowledge_base; import clones from this live KB
+  libraryItemId   String?  // set for persona/slash_command; the author's source library item
+  name            String
+  description     String?
+  payload         String   // JSON snapshot for persona/slash_command; {documentCount,chunkCount} for KB
+  installCount    Int      @default(0)
+  viewCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  author          User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  workspace       Workspace?       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase?   @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  libraryItem     UserLibraryItem? @relation(fields: [libraryItemId], references: [id], onDelete: Cascade)
+
+  @@index([type, visibility])
+  @@index([workspaceId])
+  @@index([authorId])
+}
