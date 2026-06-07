@@ -5,6 +5,7 @@ import {
     Brain, BookOpen, BarChart2, ShieldAlert, Palette, Clock,
     Plus, Pencil, Check, Loader2, Upload, ChevronDown, ChevronRight,
     FileText, AlertCircle, CheckCircle, DollarSign,
+    CreditCard, ExternalLink, Zap, Crown, Star,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useI18n } from "@/components/providers/i18n-provider";
@@ -17,6 +18,7 @@ import type { KnowledgeBaseSummary, KnowledgeDocumentSummary } from "@/types";
 export type SettingsTab =
     | "profile"
     | "account"
+    | "billing"
     | "system-prompt"
     | "appearance"
     | "memory"
@@ -548,6 +550,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
     { tab: "profile",       label: "Profile",       icon: <User size={15} />,          group: "Account" },
     { tab: "account",       label: "Security",      icon: <Lock size={15} />,          group: "Account" },
+    { tab: "billing",       label: "Billing",       icon: <CreditCard size={15} className="text-emerald-400" />, group: "Account" },
     { tab: "system-prompt", label: "System Prompt", icon: <MessageSquare size={15} />, group: "Personalization" },
     { tab: "appearance",    label: "Appearance",    icon: <Palette size={15} />,       group: "Personalization" },
     { tab: "memory",        label: "Memory",        icon: <Brain size={15} className="text-violet-400" />, group: "AI & Data" },
@@ -692,6 +695,7 @@ function TabContent({ tab, userData, setUserData, t, locale, setLocale, LOCALES,
     switch (tab) {
         case "profile":   return <ProfileTab userData={userData} setUserData={setUserData} t={t} />;
         case "account":   return <AccountTab t={t} />;
+        case "billing":   return <BillingTab />;
         case "system-prompt": return <SystemPromptTab userData={userData} t={t} />;
         case "appearance":    return <AppearanceTab userData={userData} locale={locale} setLocale={setLocale} LOCALES={LOCALES} LOCALE_NAMES={LOCALE_NAMES} t={t} />;
         case "memory":    return <MemorySection />;
@@ -1094,6 +1098,249 @@ function AppearanceTab({ userData, locale, setLocale, LOCALES, LOCALE_NAMES, t }
                     {localeLoading ? t("profile.language.saving") : t("profile.language.save")}
                 </button>
             </form>
+        </div>
+    );
+}
+
+// ── Billing tab ───────────────────────────────────────────────────────────────
+
+interface BillingPlan {
+    id: string;
+    name: string;
+    displayName: string;
+    stripePriceId: string | null;
+    monthlyPrice: number;
+    features: string[];
+    messageLimit: number | null;
+    tokenLimit: number | null;
+    active: boolean;
+}
+
+interface BillingSubscription {
+    id: string;
+    status: string;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+}
+
+function billingPlanIcon(name: string) {
+    if (name === "pro") return <Zap size={16} className="text-blue-400" />;
+    if (name === "ultra") return <Crown size={16} className="text-purple-400" />;
+    return <Star size={16} className="text-gray-400" />;
+}
+
+function billingStatusBadge(status: string) {
+    const map: Record<string, string> = {
+        active: "bg-green-500/20 text-green-300 border-green-500/30",
+        trialing: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+        past_due: "bg-red-500/20 text-red-300 border-red-500/30",
+        canceled: "bg-gray-700 text-gray-400 border-gray-600",
+        incomplete: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+    };
+    return map[status] || "bg-gray-700 text-gray-400 border-gray-600";
+}
+
+function BillingTab() {
+    const [enabled, setEnabled] = useState<boolean | null>(null);
+    const [plans, setPlans] = useState<BillingPlan[]>([]);
+    const [activePlan, setActivePlan] = useState<BillingPlan | null>(null);
+    const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+    useEffect(() => {
+        Promise.all([
+            fetch("/api/subscription/plans").then((r) => r.json()),
+            fetch("/api/subscription/status").then((r) => r.json()),
+        ])
+            .then(([plansData, statusData]) => {
+                setEnabled(Boolean(plansData?.enabled));
+                setPlans(plansData?.plans ?? []);
+                setActivePlan(statusData?.plan ?? null);
+                setSubscription(statusData?.subscription ?? null);
+            })
+            .catch(() => setEnabled(false))
+            .finally(() => setLoading(false));
+    }, []);
+
+    const handleUpgrade = async (plan: BillingPlan) => {
+        if (!plan.stripePriceId) return;
+        setActionLoading(plan.id);
+        try {
+            const res = await fetch("/api/subscription/create-checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ planId: plan.id }),
+            });
+            const data = await res.json();
+            if (data.url) { window.location.assign(data.url); return; }
+        } catch { /* fall through to reset */ }
+        setActionLoading(null);
+    };
+
+    const handleManage = async () => {
+        setActionLoading("portal");
+        try {
+            const res = await fetch("/api/subscription/portal", { method: "POST" });
+            const data = await res.json();
+            if (data.url) { window.location.assign(data.url); return; }
+        } catch { /* fall through to reset */ }
+        setActionLoading(null);
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <Loader2 size={24} className="animate-spin text-gray-500" />
+            </div>
+        );
+    }
+
+    if (!enabled) {
+        return (
+            <div className="space-y-4">
+                <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                    <CreditCard size={16} className="text-emerald-400" /> Billing
+                </h2>
+                <div className="bg-gray-800 rounded-xl p-6 text-center">
+                    <p className="text-sm text-gray-400">Subscriptions are not enabled on this workspace.</p>
+                </div>
+            </div>
+        );
+    }
+
+    const isCurrentPlan = (plan: BillingPlan) => activePlan?.id === plan.id;
+
+    return (
+        <div className="space-y-4">
+            <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <CreditCard size={16} className="text-emerald-400" /> Billing
+            </h2>
+
+            {/* Current plan banner */}
+            {activePlan && (
+                <div className="bg-gray-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-gray-700 flex items-center justify-center shrink-0">
+                            {billingPlanIcon(activePlan.name)}
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-white text-sm">{activePlan.displayName}</span>
+                                {subscription && (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border capitalize ${billingStatusBadge(subscription.status)}`}>
+                                        {subscription.status}
+                                    </span>
+                                )}
+                                {subscription?.cancelAtPeriodEnd && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full border bg-orange-500/20 text-orange-300 border-orange-500/30">
+                                        Cancels soon
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                                {activePlan.monthlyPrice === 0 ? "Free plan" : `$${activePlan.monthlyPrice.toFixed(2)}/month`}
+                                {subscription?.currentPeriodEnd && (
+                                    <> &middot; Renews {new Date(subscription.currentPeriodEnd).toLocaleDateString()}</>
+                                )}
+                            </p>
+                        </div>
+                    </div>
+                    {subscription && (
+                        <button
+                            onClick={handleManage}
+                            disabled={actionLoading === "portal"}
+                            className="flex items-center gap-2 px-3.5 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg text-xs text-white transition-colors shrink-0"
+                        >
+                            <ExternalLink size={13} />
+                            {actionLoading === "portal" ? "Opening..." : "Manage Billing"}
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Plans */}
+            <div className="space-y-3">
+                {plans.map((plan) => (
+                    <div
+                        key={plan.id}
+                        className={`rounded-xl border p-4 ${
+                            isCurrentPlan(plan) ? "border-blue-500/40 bg-blue-500/5" : "border-gray-700 bg-gray-800"
+                        }`}
+                    >
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-gray-700/70 flex items-center justify-center shrink-0">
+                                    {billingPlanIcon(plan.name)}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-semibold text-white text-sm">{plan.displayName}</h3>
+                                        {isCurrentPlan(plan) && (
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-600 text-white">Current</span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                        {plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice.toFixed(0)}/month`}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="shrink-0">
+                                {isCurrentPlan(plan) ? (
+                                    <span className="text-xs text-gray-500 px-3 py-1.5">Active</span>
+                                ) : plan.monthlyPrice === 0 ? (
+                                    <span className="text-xs text-gray-500 px-3 py-1.5">Included</span>
+                                ) : plan.stripePriceId ? (
+                                    <button
+                                        onClick={() => handleUpgrade(plan)}
+                                        disabled={actionLoading === plan.id}
+                                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                                            plan.name === "ultra"
+                                                ? "bg-purple-600 hover:bg-purple-700 text-white"
+                                                : "bg-blue-600 hover:bg-blue-700 text-white"
+                                        }`}
+                                    >
+                                        <CreditCard size={13} />
+                                        {actionLoading === plan.id ? "Redirecting..." : "Upgrade"}
+                                    </button>
+                                ) : (
+                                    <span className="text-xs text-gray-600 px-3 py-1.5">Coming soon</span>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {plan.messageLimit !== null ? (
+                                <div className="flex items-center gap-2 text-xs text-gray-300">
+                                    <Check size={12} className="text-green-400 shrink-0" />
+                                    {plan.messageLimit.toLocaleString()} messages / month
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2 text-xs text-gray-300">
+                                    <Check size={12} className="text-green-400 shrink-0" />
+                                    Unlimited messages
+                                </div>
+                            )}
+                            {plan.tokenLimit !== null && (
+                                <div className="flex items-center gap-2 text-xs text-gray-300">
+                                    <Check size={12} className="text-green-400 shrink-0" />
+                                    {plan.tokenLimit.toLocaleString()} tokens / month
+                                </div>
+                            )}
+                            {plan.features.map((f, i) => (
+                                <div key={i} className="flex items-center gap-2 text-xs text-gray-300">
+                                    <Check size={12} className="text-green-400 shrink-0" />
+                                    {f}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            <p className="text-center text-[11px] text-gray-600 pt-1">
+                Payments are processed securely by Stripe. Cancel anytime from the billing portal.
+            </p>
         </div>
     );
 }
